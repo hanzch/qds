@@ -42,3 +42,5 @@ if __name__ == '__main__':
     }
 
     update_kline_job(**optim_conf)
+    print()
+    print()
