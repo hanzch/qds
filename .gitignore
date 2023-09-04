@@ -1,0 +1,14 @@
+/czsc/
+/app/
+/examples/
+/logs/
+/templates/
+/db/logs/
+/db/old/
+/db/error/
+/db/*.csv
+/db/config/
+.pytest_cache
+test.py
+/lib/
+/debug/
