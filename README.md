@@ -16,9 +16,10 @@
 
 1. 使用前请自行安装 clickhouse
 2. `git git@github.com:hanzch/qds.git`
-3. 重命名 `conf/dev.env.bak` 去掉.bak，按需修改内容
-4. `script/1.init_db.py` 运行后完成建库及测试数据写入*(如不需要请自行注释对应代码)*
-5. 执行`jobs.py`开始下载，目前依赖于`czsc.fsa`模块，如不需要请自行注释或删除
+3. `pip install -r requirements.txt`
+4. 重命名 `conf/dev.env.bak` 去掉.bak，按需修改内容
+5. `script/1.init_db.py` 运行后完成建库及测试数据写入*(如不需要请自行注释对应代码)*
+6. 执行`jobs.py`开始下载，目前依赖于`czsc.fsa`模块，如不需要请自行注释或删除
 
 ## 使用前必看
 
