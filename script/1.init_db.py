@@ -40,5 +40,5 @@ def create_test():
 
 if __name__ == '__main__':
     create_databases()
-    insert_test()
+    # insert_test()
     # create_test()

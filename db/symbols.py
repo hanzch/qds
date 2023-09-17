@@ -18,7 +18,7 @@ from libs.cache import Cache
 
 @dataclass
 class Symbols:
-    cfg = Cache("codes")
+    cache = Cache("codes")
     ds: DataSource
 
     def __post_init__(self):
@@ -31,7 +31,7 @@ class Symbols:
         :return: list 更新后的信息
         """
         if self.ds.update_symbols_info():
-            self.cfg.remove()
+            self.cache.remove()
             log.success(f"从数据源{self.ds}更新symbols已完成,已删除本地缓存。")
         return self.infos
 
@@ -41,11 +41,11 @@ class Symbols:
         返回带上市日期的所有股票代码
         :return: list [['300640.SZ', '20170417'], ['300642.SZ', '20170421'], ...]
         """
-        res = self.cfg.get()
+        res = self.cache.get()
         if not res:
             df = DataSource.get_symbols_info()
             res = np.array(df).tolist()
-            self.cfg.set(res)
+            self.cache.set(res)
         return res
 
     @property

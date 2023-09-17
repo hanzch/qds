@@ -38,7 +38,7 @@ CREATE TABLE quant.ts_min
     `high` Decimal(9, 2),
     `low` Decimal(9, 2),
     `close` Decimal(9, 2),
-    `volume` UInt64,
+    `volume` Decimal(18, 2),
     `amount` Decimal(18, 2)
 )
 ENGINE = ReplacingMergeTree

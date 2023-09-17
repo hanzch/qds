@@ -98,7 +98,7 @@ def timetag2datetime(time_tag):
     return datetime_array
 
 
-def delta_datetime(strdt=None, days=0, hours=0, minutes=0, seconds=0, milliseconds=0, _format="%Y-%m-%d %H:%M:%S"):
+def delta_datetime(strdt=None, days=0, hours=0, minutes=0, seconds=0, milliseconds=0, _format="%Y%m%d"):
     """
     获取某个时间间隔后的日期时间
     :param strdt: 参照日期时间，如果不填则使用当前日期时间

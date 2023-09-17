@@ -15,7 +15,7 @@ from conf.constants import *
 
 class DB(object):
     def __init__(self):
-        init_db_parm()
+        init_db_param()
         self.host = os.getenv("db_host", "127.0.0.1")
         self.port = os.getenv("db_port", "8123")
         self.user = os.getenv("db_user", "default")
@@ -43,7 +43,7 @@ class DBPool:
             conn = self.db.create_conn()
         except RemoteDisconnected:
             time.sleep(0.5)
-            print("conn errors")
+            log.error("conn errors - RemoteDisconnected")
             conn = self.db.create_conn()
         return conn
 

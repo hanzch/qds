@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 # @Time : 2023/5/10/010 12:30
 # @Author : 不归
-# @FileName: ts.py.py
+# @FileName: ts.py
+"""
+Tushare数据源的实现类
+"""
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -11,15 +14,14 @@ import pandas as pd
 import tushare as ts
 
 from conf.constants import *
-from db.source.base import D, DataSource, Dtype, F1
-from libs.dtTools import delta_datetime, now_str, now_timetag, str2datetime, str2timetag, timetag2datetime, timetag2sec
+from db.source.base import ADJ, DAY, DataSource, MIN
+from libs.dtTools import delta_datetime, now_str, str2datetime, timetag2datetime
 
 
 @dataclass
 class TSSource(DataSource):
 
     def __post_init__(self):
-        self.limit = 7920
         self.thread_num = 4
 
         ts_token = os.getenv("ts_token")
@@ -27,54 +29,70 @@ class TSSource(DataSource):
         ts.set_token(ts_token)
         self.pro = ts.pro_api()
 
-    def set_source_date(self):
-        self.source_date = ("20090101", "19900101",)[self.freq is D]
+    def set_source(self):
+        self.source_date = ("19900101", "20090101")[self.dtype is MIN]
+        self.limit = (5900, 7920)[self.dtype is MIN]
 
     def _get_ts(self, symbol, sdt, edt):
+        log.debug(f"开始访问ts接口:{symbol=},{sdt=},{edt=}")
         for n in range(1, 4):
             try:
-                df = ts.pro_bar(ts_code=symbol, adj=self.fq.ts, freq=self.freq.ts, start_date=sdt, end_date=edt)
-            except Exception:
+                if self.dtype in [MIN]:
+                    df = ts.pro_bar(ts_code=symbol, adj=self.fq.ts, freq=self.dtype.ts, start_date=sdt, end_date=edt)
+                elif self.dtype in [DAY]:
+                    df = self.pro.daily(ts_code=symbol, start_date=sdt, end_date=edt)
+                elif self.dtype in [ADJ]:
+                    df = self.pro.adj_factor(ts_code=symbol, start_date=sdt, end_date=edt)
+                time.sleep(60 / 1000 * self.thread_num)
+            except Exception as e:
+                log.error(e)
                 log.error(f"获取{symbol}数据出错，稍后进行第{n}次重试...")
                 time.sleep(1)
             else:
                 return df
-        log.error(f"获取{symbol}数据出错，重试3次失败！")
+        log.error(f"获取{symbol=},{sdt=},{edt=}数据出错，重试3次失败！")
 
     def update_hist(self, symbols: list[str], sdt: datetime, edt: datetime):
 
         # print('当前函数名称:', inspect.stack())
 
-        log.info(f"正在获取{symbols}.{self.dtype}数据，时间范围{sdt}~{edt}请稍后...")
+        log.info(f"正在获取{symbols}.{self.dtype.sql}数据，时间范围{sdt}~{edt}请稍后...")
         err_ls = []
         df = pd.DataFrame()
 
-        for symbol in symbols:
-            log.debug(f"开始访问ts接口:{symbol=},{sdt=},{edt=}")
-            df_ = self._get_ts(symbol, sdt, edt)
-            if not isinstance(df_, pd.DataFrame) or df_.empty:
-                tp = self.pro.suspend_d(suspend_type='S', start_date=sdt, end_date=edt, ts_code=symbol)
-                if not tp.empty:
+        if self.dtype is DAY:
+            n = 2000
+            for s in [symbols[i:i + n] for i in range(0, len(symbols), n)]:
+                str_symbols = ','.join(s)
+                df_ = self._get_ts(str_symbols, sdt, edt)
+                if not isinstance(df_, pd.DataFrame) or df_.empty:
+                    err_ls.append((symbols, sdt, edt))
                     continue
-                err_ls.append(([symbol], sdt, edt))
-
-            df = pd.concat([df, df_], ignore_index=True)
-
-        if err_ls:
-            log.warning(err_ls)
+                df = pd.concat([df, df_], ignore_index=True)
+        else:
+            for symbol in symbols:
+                df_ = self._get_ts(symbol, sdt, edt)
+                if not isinstance(df_, pd.DataFrame) or df_.empty:
+                    tp = self.pro.suspend_d(suspend_type='S', start_date=sdt, end_date=edt, ts_code=symbol)
+                    if tp.empty:
+                        err_ls.append(([symbol], sdt, edt))
+                    continue
+                df = pd.concat([df, df_], ignore_index=True)
 
         if df.empty:
-            log.debug(f"未找到数据,可能是停牌{symbols, sdt, edt}")
+            log.warning(f"未找到数据,可能是停牌{symbols, sdt, edt}")
             return edt
 
-        if self.freq == F1:
-            df = df[['ts_code', 'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount']]
-            df.rename(columns={"trade_time": "date", "ts_code": "code", "vol": "volume"}, inplace=True)
+        if err_ls:
+            log.warning(f"部分数据未找到，请关注：{err_ls}")
+
+        time_field = ("trade_date", "trade_time")[self.dtype is MIN]
+        df = df[['ts_code', time_field, 'open', 'high', 'low', 'close', 'vol', 'amount']]
+        df.rename(columns={time_field: "date", "ts_code": "code", "vol": "volume"}, inplace=True)
+
+        if self.dtype is MIN:
             df['date'] = df['date'].apply(str2datetime, _format="%Y-%m-%d %H:%M:%S")
-            df['volume'] = df['volume'].astype('Int64')
         else:
-            df = df[['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount']]
-            df.rename(columns={"trade_date": "date", "ts_code": "code", "vol": "volume"}, inplace=True)
             df['date'] = pd.to_datetime(df['date'])
             df['volume'] = df['volume'] * 100
             df['amount'] = df['amount'] * 1000
@@ -84,40 +102,31 @@ class TSSource(DataSource):
         # 自动处理amount空值
         df['amount'] = df['amount'].fillna(df['close'] * df['volume'])
 
-        log.info(f"{symbols}.{self.dtype}.{sdt}~{edt}获取到{df.shape[0]}条数据")
-
         if not df.shape[0]:
-            sql = f"SELECT * FROM quant.ts_{self.dtype} Final where code='{symbols}' " \
+            sql = f"SELECT * FROM quant.ts_{self.dtype.sql} Final where code='{symbols}' " \
                   f"AND	`date` BETWEEN toDateTime('{sdt}') and toDateTime('{edt}')"
             log.warning(f"{symbols}未从TS找到数据，请确认。\n{sql}\n")
             return 0
 
-        # 此处代码主要用于判断数据是否有误，如QMT当时的错误脏数据。
+        log.info(f"{symbols}.{self.dtype.sql}.{sdt}~{edt}获取到{df.shape[0]}条数据")
+
         # df["date"] = df["date"].dt.tz_localize('Asia/Shanghai')
         df.sort_values(by=["code", "date"], inplace=True, ascending=False)
-        max_tag = timetag2sec(df.max().date.value)
-        min_tag = timetag2sec(df.min().date.value)
-        now_tag = now_timetag()
-        start_tag = str2timetag(sdt, "%Y%m%d")
+        max_tag = timetag2datetime(df.max().date.value).strftime(dt_format)
+        min_tag = timetag2datetime(df.min().date.value).strftime(dt_format)
 
-        # log.debug(f"{symbols=} -{sdt=}~{edt=} - {timetag2datetime(min_tag)}~{timetag2datetime(max_tag)}\n")
+        # 此处代码主要用于判断数据是否有误，如QMT当时的错误脏数据。
+        if max_tag > edt or min_tag < sdt:
+            df.to_csv(f"zang_{symbols}_{self.dtype.sql}.csv", index=False)
+            log.error(
+                f"查询结果出错，{edt=}-{sdt=},{min_tag=}-{max_tag=}")
+            return 0
 
-        # if max_tag > now_tag or min_tag < start_tag:
-        #     df.to_csv(f"脏数据{symbols}_{self.dtype}.csv", index=False)
-        #     log.error(
-        #         f"查询结果出错，最大日期{timetag2datetime(max_tag)}，提交结束日期{edt} -"
-        #         f" 最小日期{timetag2datetime(min_tag)}，提交开始日期{sdt}\n",
-        #         "-" * 10)
-        #     return 0
-        #
-        # else:
-        # df.to_csv(f"{symbols}_{self.dtype}.csv", index=False)
-        db_tab = f"quant.ts_{self.dtype}"
+        db_tab = f"quant.ts_{self.dtype.sql}"
         if super()._to_clickhouse(db_tab, df):
-            if self.dtype is Dtype.min:
-                stime = timetag2datetime(max_tag).strftime(self.dt_format)
-                return delta_datetime(strdt=stime, _format=self.dt_format, days=1)
-            return timetag2datetime(max_tag).strftime(self.dt_format)
+            if self.dtype is MIN:
+                return delta_datetime(strdt=max_tag, _format=dt_format, days=1)
+            return max_tag
         return 0
 
     def update_symbols_info(self):
@@ -143,54 +152,47 @@ class TSSource(DataSource):
 
         err_ls = []
         df = pd.DataFrame()
-        for symbol in symbols:
-            df_ = self.pro.adj_factor(ts_code=symbol, start_date=sdt, end_date=edt)
+        n = 2000
+        for s in [symbols[i:i + n] for i in range(0, len(symbols), n)]:
+            str_symbols = ','.join(s)
+            df_ = self._get_ts(str_symbols, sdt, edt)
             if not isinstance(df_, pd.DataFrame) or df_.empty:
-                tp = self.pro.suspend_d(suspend_type='S', start_date=sdt, end_date=edt, ts_code=symbol)
-                if not tp.empty:
-                    continue
-                err_ls.append(([symbol], sdt, edt))
-
+                err_ls.append((symbols, sdt, edt))
+                continue
             df = pd.concat([df, df_], ignore_index=True)
-            time.sleep(60 / 1000 * self.thread_num / 2)
-
-        if err_ls:
-            log.warning(err_ls)
-
-        log.info(f"{symbols}.adj.{sdt}~{edt}获取到{df.shape[0]}条数据")
 
         if df.empty:
-            log.debug(f"未找到数据,可能是停牌{symbols, sdt, edt}")
+            log.warning(f"未找到数据,可能是停牌{symbols, sdt, edt}")
             return edt
 
-        if not df.shape[0]:
-            sql = f"SELECT * FROM quant.ts_adj Final where code='{symbols}' " \
-                  f"AND	`date` BETWEEN toDateTime('{sdt}') and toDateTime('{edt}')"
-            log.warning(f"{symbols}未从TS找到数据，请确认。\n{sql}\n")
-            return 0
+        if err_ls:
+            log.warning(f"部分数据未找到，请关注：{err_ls}")
+
+        log.info(f"{symbols}.{self.dtype.sql}.{sdt}~{edt}获取到{df.shape[0]}条数据")
+
         df.rename(columns={"trade_date": "date", "ts_code": "code", "adj_factor": "num"}, inplace=True)
-        df['date'] = df['date'].apply(str2datetime, _format=self.dt_format)
+        df['date'] = pd.to_datetime(df['date'])
+
+        df.sort_values(by=["code", "date"], inplace=True, ascending=False)
+        max_tag = timetag2datetime(df.max().date.value).strftime(dt_format)
+        min_tag = timetag2datetime(df.min().date.value).strftime(dt_format)
 
         # 此处代码主要用于判断数据是否有误，如QMT当时的错误脏数据。
-        # df["date"] = df["date"].dt.tz_localize('Asia/Shanghai')
-        df.sort_values(by=["code", "date"], inplace=True, ascending=False)
-        max_tag = timetag2sec(df.max().date.value)
-        min_tag = timetag2sec(df.min().date.value)
-        now_tag = now_timetag()
-        start_tag = str2timetag(sdt, "%Y%m%d")
-
-        # log.debug(f"{symbols=} -{sdt=}~{edt=} - {timetag2datetime(min_tag)}~{timetag2datetime(max_tag)}\n")
-
-        if max_tag > now_tag or min_tag < start_tag:
-            df.to_csv(f"脏数据{symbols}_{self.dtype}.csv", index=False)
+        if max_tag > edt or min_tag < sdt:
+            df.to_csv(f"脏_{symbols}_{self.dtype.sql}.csv", index=False)
             log.error(
-                f"查询结果出错，最大日期{timetag2datetime(max_tag)}，提交结束日期{edt} -"
-                f" 最小日期{timetag2datetime(min_tag)}，提交开始日期{sdt}\n",
-                "-" * 10)
+                f"查询结果出错，{edt=}-{sdt=},{min_tag=}-{max_tag=}")
             return 0
 
-        else:
-            db_tab = f"quant.ts_{self.dtype}"
-            if super()._to_clickhouse(db_tab, df):
-                return timetag2datetime(max_tag).strftime(self.dt_format)
-            return 0
+        db_tab = f"quant.ts_{self.dtype.sql}"
+        if super()._to_clickhouse(db_tab, df):
+            return max_tag
+        return 0
+
+    def sel_kline_for_symbol(self, symbol: str, sdt: str, edt: str):
+        sdt = sdt[:4] + '-' + sdt[4:6] + '-' + sdt[6:]
+        edt = edt[:4] + '-' + edt[4:6] + '-' + edt[6:]
+        db_tab = f"quant.ts_{self.dtype.sql}"
+        sql = f"SELECT * FROM {db_tab} final WHERE code='{symbol}' AND date BETWEEN '{sdt}' AND '{edt}'"
+        df = super()._query_clickhouse(sql)
+        return df

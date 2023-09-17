@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+# @Time : 2023/9/4/001 21:42
+# @Author : 不归
+# @FileName: constants.py
+
 import os
 import sys
 from pathlib import Path
@@ -7,6 +12,7 @@ from loguru import logger as log
 
 DEBUG = True
 BASE_PATH = Path(__file__).parent.parent
+dt_format: str = "%Y%m%d"
 
 
 def set_glob(key, value):
@@ -67,27 +73,38 @@ def init_log():
 
     if not get_glob("DEBUG"):
         log.add(sys.stderr, level="INFO")
-        log.remove(debug_log)
     else:
         log.add(sys.stderr, level="DEBUG")
 
     log.debug(f"当前项目根目录为：{get_glob('BASE_PATH')}")
 
 
-def init_feishu_parm():
-    env_path = get_glob("BASE_PATH") / 'conf/feishu.env'
-    log.debug(f"准备加载Feishu配置文件：{env_path}")
-    load_dotenv(find_dotenv(env_path))
+def init_api_param():
+    if getattr(init_api_param, 'has_run', False):
+        return
+    init_api_param.has_run = True
 
-
-def init_api_parm():
     env_path = get_glob("BASE_PATH") / 'conf/api.env'
     log.debug(f"准备加载API配置文件：{env_path}")
     load_dotenv(find_dotenv(env_path))
     log.debug(f"当前API地址为：{os.environ.get('api_url')}")
 
 
-def init_db_parm():
+def init_feishu_param():
+    if getattr(init_feishu_param, 'has_run', False):
+        return
+    init_feishu_param.has_run = True
+
+    env_path = get_glob("BASE_PATH") / 'conf/feishu.env'
+    log.debug(f"准备加载Feishu配置文件：{env_path}")
+    load_dotenv(find_dotenv(env_path))
+
+
+def init_db_param():
+    if getattr(init_db_param, 'has_run', False):
+        return
+    init_db_param.has_run = True
+
     if not get_glob("DEBUG"):
         cfg = 'prod.env'
         log.disable("conf.constants")

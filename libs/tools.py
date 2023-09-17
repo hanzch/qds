@@ -6,9 +6,9 @@
 通用工具函数类
 """
 import math
-from pathlib import Path
 
-from db.source.base import Dtype
+from conf.constants import *
+from db.source.base import ADJ, DAY, Dtype, MIN
 from libs.dtTools import howdays
 
 
@@ -65,7 +65,15 @@ def paging(date_kind: tuple, dtype: Dtype, limit: int) -> int:
 
     sdt, edt = date_kind
     day = howdays(sdt, edt) + 1
-    if dtype in [Dtype.day, Dtype.adj]:
+    if dtype in [DAY, ADJ]:
         return math.ceil(limit / day)
-    elif dtype is Dtype.min:
+    elif dtype is MIN:
         return math.ceil(limit / day / 4 / 60)
+
+
+def get_err_cache_names():
+    fpath = Path.home() / ".czsc/err_ls/"
+    check_path_exist(fpath)
+    file_ls = os.listdir(fpath)
+    name_ls = [a for a, _ in [f.split(".") for f in file_ls]]
+    return name_ls
